@@ -14,7 +14,113 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      conversations: {
+        Row: {
+          created_at: string
+          id: string
+          is_temporary: boolean
+          mode: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_temporary?: boolean
+          mode?: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_temporary?: boolean
+          mode?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      memory: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
+      messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          mode: string | null
+          role: string
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          mode?: string | null
+          role: string
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          mode?: string | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      settings: {
+        Row: {
+          id: number
+          internet_enabled: boolean
+          memory_enabled: boolean
+          preferred_model: string
+          updated_at: string
+          voice_enabled: boolean
+        }
+        Insert: {
+          id?: number
+          internet_enabled?: boolean
+          memory_enabled?: boolean
+          preferred_model?: string
+          updated_at?: string
+          voice_enabled?: boolean
+        }
+        Update: {
+          id?: number
+          internet_enabled?: boolean
+          memory_enabled?: boolean
+          preferred_model?: string
+          updated_at?: string
+          voice_enabled?: boolean
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
