@@ -1,17 +1,67 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { motion } from "framer-motion";
-import { ArrowUp, Mic, Paperclip, Square } from "lucide-react";
+import { ArrowUp, Loader2, Mic, MicOff, Paperclip, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
   onSend: (text: string) => void;
   busy: boolean;
   onStop: () => void;
+  voiceEnabled?: boolean;
 }
 
-export function InputBar({ onSend, busy, onStop }: Props) {
+export function InputBar({ onSend, busy, onStop, voiceEnabled = false }: Props) {
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Microphone not available in this browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        if (blob.size === 0) return;
+        setTranscribing(true);
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "voice.webm");
+          const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+          const j = await res.json();
+          if (res.ok && j.text) {
+            setText((prev) => (prev ? prev + " " + j.text : j.text).trim());
+          } else if (j.error) {
+            alert("Transcription failed: " + j.error);
+          }
+        } catch (e) {
+          alert("Transcription failed.");
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      mediaRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch {
+      alert("Microphone permission denied.");
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRef.current?.stop();
+    mediaRef.current = null;
+    setRecording(false);
+  };
 
   const send = () => {
     const t = text.trim();
@@ -54,16 +104,29 @@ export function InputBar({ onSend, busy, onStop }: Props) {
             el.style.height = Math.min(el.scrollHeight, 220) + "px";
           }}
           onKeyDown={onKey}
-          placeholder="Ask Cortex anything…"
+          placeholder={recording ? "Listening…" : transcribing ? "Transcribing…" : "Ask Cortex anything…"}
           className="flex-1 bg-transparent outline-none resize-none text-sm placeholder:text-muted-foreground/70 py-2 px-1 max-h-[220px]"
         />
 
         <button
-          className="shrink-0 h-9 w-9 rounded-full hover:bg-white/5 text-muted-foreground hover:text-foreground flex items-center justify-center transition"
-          title="Voice (coming soon)"
-          disabled
+          onClick={recording ? stopRecording : startRecording}
+          disabled={!voiceEnabled || transcribing || busy}
+          className={cn(
+            "shrink-0 h-9 w-9 rounded-full flex items-center justify-center transition",
+            recording
+              ? "bg-destructive/80 text-destructive-foreground animate-pulse"
+              : "hover:bg-white/5 text-muted-foreground hover:text-foreground",
+            (!voiceEnabled || transcribing || busy) && "opacity-50 cursor-not-allowed",
+          )}
+          title={voiceEnabled ? (recording ? "Stop recording" : "Voice input") : "Enable voice in Settings"}
         >
-          <Mic className="w-4 h-4" />
+          {transcribing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : recording ? (
+            <MicOff className="w-4 h-4" />
+          ) : (
+            <Mic className="w-4 h-4" />
+          )}
         </button>
 
         {busy ? (
