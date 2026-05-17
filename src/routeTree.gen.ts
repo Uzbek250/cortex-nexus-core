@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiOrchestrateRouteImport } from './routes/api/orchestrate'
 import { Route as ApiDetectModeRouteImport } from './routes/api/detect-mode'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOrchestrateRoute = ApiOrchestrateRouteImport.update({
+  id: '/api/orchestrate',
+  path: '/api/orchestrate',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDetectModeRoute = ApiDetectModeRouteImport.update({
@@ -33,30 +39,34 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
   '/api/detect-mode': typeof ApiDetectModeRoute
+  '/api/orchestrate': typeof ApiOrchestrateRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
   '/api/detect-mode': typeof ApiDetectModeRoute
+  '/api/orchestrate': typeof ApiOrchestrateRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
   '/api/detect-mode': typeof ApiDetectModeRoute
+  '/api/orchestrate': typeof ApiOrchestrateRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/chat' | '/api/detect-mode'
+  fullPaths: '/' | '/api/chat' | '/api/detect-mode' | '/api/orchestrate'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/chat' | '/api/detect-mode'
-  id: '__root__' | '/' | '/api/chat' | '/api/detect-mode'
+  to: '/' | '/api/chat' | '/api/detect-mode' | '/api/orchestrate'
+  id: '__root__' | '/' | '/api/chat' | '/api/detect-mode' | '/api/orchestrate'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiDetectModeRoute: typeof ApiDetectModeRoute
+  ApiOrchestrateRoute: typeof ApiOrchestrateRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/orchestrate': {
+      id: '/api/orchestrate'
+      path: '/api/orchestrate'
+      fullPath: '/api/orchestrate'
+      preLoaderRoute: typeof ApiOrchestrateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/detect-mode': {
@@ -89,17 +106,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiChatRoute: ApiChatRoute,
   ApiDetectModeRoute: ApiDetectModeRoute,
+  ApiOrchestrateRoute: ApiOrchestrateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

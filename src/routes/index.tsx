@@ -9,6 +9,7 @@ import { ChatView } from "@/components/cortex/ChatView";
 import { SettingsDialog } from "@/components/cortex/SettingsDialog";
 import { MemoryDialog } from "@/components/cortex/MemoryDialog";
 import type { Conversation } from "@/lib/cortex-types";
+import type { CortexPhase } from "@/components/cortex/BrainViz";
 
 export const Route = createFileRoute("/")({
   component: CortexApp,
@@ -26,6 +27,8 @@ function CortexApp() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [temporary, setTemporary] = useState(false);
   const [mode, setMode] = useState("auto");
+  const [phase, setPhase] = useState<CortexPhase>("idle");
+  const [activeModel, setActiveModel] = useState<string | null>(null);
   const [memoryItems, setMemoryItems] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -122,13 +125,18 @@ function CortexApp() {
             internet={settings.internet_enabled}
             memory={settings.memory_enabled && memoryItems.length > 0}
             voice={settings.voice_enabled}
+            phase={phase}
+            activeModel={activeModel}
           />
           <ChatView
             conversationId={activeId}
             isTemporary={temporary}
             memory={settings.memory_enabled ? memoryItems : []}
+            internetEnabled={settings.internet_enabled}
             onCreateConversation={createConv}
             onModeChange={setMode}
+            onPhaseChange={setPhase}
+            onModelChange={setActiveModel}
             onTitleSet={(id, title) =>
               setConversations((c) => c.map((x) => (x.id === id ? { ...x, title } : x)))
             }

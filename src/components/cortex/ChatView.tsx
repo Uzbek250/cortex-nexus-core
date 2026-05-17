@@ -1,27 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { Message } from "./Message";
 import { InputBar } from "./InputBar";
 import { EmptyState } from "./EmptyState";
 import type { ChatMessage } from "@/lib/cortex-types";
+import type { CortexPhase } from "./BrainViz";
 
 interface Props {
   conversationId: string | null;
   isTemporary: boolean;
   memory: string[];
+  internetEnabled: boolean;
   onCreateConversation: (firstMsg: string) => Promise<string>;
   onModeChange: (mode: string) => void;
+  onPhaseChange: (phase: CortexPhase) => void;
+  onModelChange: (model: string | null) => void;
   onTitleSet: (id: string, title: string) => void;
 }
 
 export function ChatView({
-  conversationId, isTemporary, memory, onCreateConversation, onModeChange, onTitleSet,
+  conversationId, isTemporary, memory, internetEnabled,
+  onCreateConversation, onModeChange, onPhaseChange, onModelChange, onTitleSet,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [refinedIds, setRefinedIds] = useState<Set<string>>(new Set());
 
   // Load messages on conv change
   useEffect(() => {
@@ -57,6 +63,7 @@ export function ChatView({
     const nextMsgs = [...messages, userMsg, { id: assistantId, role: "assistant" as const, content: "" }];
     setMessages(nextMsgs);
     setStreaming(true);
+    onPhaseChange("analyzing");
 
     // Persist user msg
     if (convId && !isTemporary) {
@@ -71,28 +78,18 @@ export function ChatView({
       }
     }
 
-    // Detect mode (fire and forget UI hint)
-    fetch("/api/detect-mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    })
-      .then((r) => r.json())
-      .then((j: { mode: string }) => onModeChange(j.mode))
-      .catch(() => {});
-
-    // Stream chat
+    // Stream from orchestrator
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     let acc = "";
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/orchestrate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...messages, userMsg].map(({ role, content }) => ({ role, content })),
-          mode: "auto",
           memory,
+          internetEnabled,
         }),
         signal: ctrl.signal,
       });
@@ -120,10 +117,32 @@ export function ChatView({
           if (payload === "[DONE]") continue;
           try {
             const j = JSON.parse(payload);
-            const delta = j.choices?.[0]?.delta?.content;
-            if (typeof delta === "string") {
-              acc += delta;
-              setMessages((m) => m.map((x) => x.id === assistantId ? { ...x, content: acc } : x));
+            switch (j.type) {
+              case "phase":
+                onPhaseChange(j.phase as CortexPhase);
+                if (j.model) onModelChange(j.model as string);
+                break;
+              case "meta":
+                onModeChange(j.mode ?? "auto");
+                onModelChange(j.model ?? null);
+                break;
+              case "delta":
+                if (typeof j.content === "string") {
+                  acc += j.content;
+                  setMessages((m) => m.map((x) => x.id === assistantId ? { ...x, content: acc } : x));
+                }
+                break;
+              case "refined":
+                if (typeof j.content === "string" && j.content.trim().length > 0) {
+                  acc = j.content;
+                  setMessages((m) => m.map((x) => x.id === assistantId ? { ...x, content: acc } : x));
+                  setRefinedIds((s) => new Set(s).add(assistantId));
+                }
+                break;
+              case "error":
+                acc = `⚠️ ${j.message ?? "Something went wrong."}`;
+                setMessages((m) => m.map((x) => x.id === assistantId ? { ...x, content: acc } : x));
+                break;
             }
           } catch {}
         }
@@ -136,6 +155,7 @@ export function ChatView({
     } finally {
       setStreaming(false);
       abortRef.current = null;
+      onPhaseChange("idle");
       if (convId && !isTemporary && acc) {
         supabase.from("messages").insert({
           conversation_id: convId, role: "assistant", content: acc,
@@ -160,6 +180,7 @@ export function ChatView({
                   role={m.role}
                   content={m.content}
                   streaming={streaming && i === messages.length - 1 && m.role === "assistant" && !m.content}
+                  refined={refinedIds.has(m.id)}
                 />
               ))}
             </AnimatePresence>
