@@ -133,6 +133,7 @@ function CortexApp() {
             isTemporary={temporary}
             memory={settings.memory_enabled ? memoryItems : []}
             internetEnabled={settings.internet_enabled}
+            voiceEnabled={settings.voice_enabled}
             onCreateConversation={createConv}
             onModeChange={setMode}
             onPhaseChange={setPhase}
