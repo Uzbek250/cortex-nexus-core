@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiTranscribeRouteImport } from './routes/api/transcribe'
+import { Route as ApiProvidersRouteImport } from './routes/api/providers'
 import { Route as ApiOrchestrateRouteImport } from './routes/api/orchestrate'
 import { Route as ApiDetectModeRouteImport } from './routes/api/detect-mode'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
@@ -17,6 +19,16 @@ import { Route as ApiChatRouteImport } from './routes/api/chat'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
+  id: '/api/transcribe',
+  path: '/api/transcribe',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProvidersRoute = ApiProvidersRouteImport.update({
+  id: '/api/providers',
+  path: '/api/providers',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiOrchestrateRoute = ApiOrchestrateRouteImport.update({
@@ -40,12 +52,16 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/detect-mode': typeof ApiDetectModeRoute
   '/api/orchestrate': typeof ApiOrchestrateRoute
+  '/api/providers': typeof ApiProvidersRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/chat': typeof ApiChatRoute
   '/api/detect-mode': typeof ApiDetectModeRoute
   '/api/orchestrate': typeof ApiOrchestrateRoute
+  '/api/providers': typeof ApiProvidersRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +69,34 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/detect-mode': typeof ApiDetectModeRoute
   '/api/orchestrate': typeof ApiOrchestrateRoute
+  '/api/providers': typeof ApiProvidersRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/chat' | '/api/detect-mode' | '/api/orchestrate'
+  fullPaths:
+    | '/'
+    | '/api/chat'
+    | '/api/detect-mode'
+    | '/api/orchestrate'
+    | '/api/providers'
+    | '/api/transcribe'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/chat' | '/api/detect-mode' | '/api/orchestrate'
-  id: '__root__' | '/' | '/api/chat' | '/api/detect-mode' | '/api/orchestrate'
+  to:
+    | '/'
+    | '/api/chat'
+    | '/api/detect-mode'
+    | '/api/orchestrate'
+    | '/api/providers'
+    | '/api/transcribe'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/chat'
+    | '/api/detect-mode'
+    | '/api/orchestrate'
+    | '/api/providers'
+    | '/api/transcribe'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +104,8 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiDetectModeRoute: typeof ApiDetectModeRoute
   ApiOrchestrateRoute: typeof ApiOrchestrateRoute
+  ApiProvidersRoute: typeof ApiProvidersRoute
+  ApiTranscribeRoute: typeof ApiTranscribeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -76,6 +115,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/transcribe': {
+      id: '/api/transcribe'
+      path: '/api/transcribe'
+      fullPath: '/api/transcribe'
+      preLoaderRoute: typeof ApiTranscribeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/providers': {
+      id: '/api/providers'
+      path: '/api/providers'
+      fullPath: '/api/providers'
+      preLoaderRoute: typeof ApiProvidersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/orchestrate': {
@@ -107,7 +160,19 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiDetectModeRoute: ApiDetectModeRoute,
   ApiOrchestrateRoute: ApiOrchestrateRoute,
+  ApiProvidersRoute: ApiProvidersRoute,
+  ApiTranscribeRoute: ApiTranscribeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
