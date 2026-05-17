@@ -3,14 +3,23 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import {
   CLASSIFIER_MODEL,
+  CLASSIFIER_PROVIDER,
   CLASSIFIER_SYSTEM,
   CRITIC_SYSTEM,
+  FALLBACK,
   buildCriticUserMessage,
   buildSystemPrompt,
   parseClassifierOutput,
   routeFromIntent,
   selectRelevantMemories,
 } from "@/lib/cortex/orchestrator";
+import {
+  chatJSON,
+  chatStream,
+  formatSearchContext,
+  providerAvailable,
+  tavilySearch,
+} from "@/lib/cortex/providers.server";
 
 const MessageSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -23,26 +32,13 @@ const Body = z.object({
   internetEnabled: z.boolean().default(false),
 });
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-
-async function gatewayJSON(apiKey: string, model: string, messages: unknown, max?: number) {
-  const res = await fetch(GATEWAY, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, ...(max ? { max_tokens: max } : {}) }),
-  });
-  if (!res.ok) throw new Error(`gateway_${res.status}`);
-  const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return j.choices?.[0]?.message?.content ?? "";
-}
-
 export const Route = createFileRoute("/api/orchestrate")({
   server: {
     handlers: {
       POST: async ({ request }: { request: Request }) => {
-        const apiKey = process.env.LOVABLE_API_KEY;
-        if (!apiKey) {
-          return new Response(JSON.stringify({ error: "LOVABLE_API_KEY missing" }), {
+        // At minimum one upstream provider must be configured.
+        if (!providerAvailable("groq") && !providerAvailable("openrouter")) {
+          return new Response(JSON.stringify({ error: "No AI provider configured. Add GROQ_API_KEY or OPENROUTER_API_KEY." }), {
             status: 500,
             headers: { "Content-Type": "application/json" },
           });
@@ -75,8 +71,8 @@ export const Route = createFileRoute("/api/orchestrate")({
               emit({ type: "phase", phase: "analyzing" });
               let routing;
               try {
-                const raw = await gatewayJSON(
-                  apiKey,
+                const raw = await chatJSON(
+                  CLASSIFIER_PROVIDER,
                   CLASSIFIER_MODEL,
                   [
                     { role: "system", content: CLASSIFIER_SYSTEM },
@@ -91,7 +87,7 @@ export const Route = createFileRoute("/api/orchestrate")({
               }
 
               // ── PHASE 2: ROUTE + MEMORY SELECTION ─────────────────────────
-              emit({ type: "phase", phase: "routing", model: routing.model });
+              emit({ type: "phase", phase: "routing", model: routing.model, provider: routing.provider });
               const relevantMemories = selectRelevantMemories(body.memory, lastUser, 5);
 
               emit({
@@ -99,46 +95,58 @@ export const Route = createFileRoute("/api/orchestrate")({
                 intent: routing.intent,
                 mode: routing.mode,
                 model: routing.model,
+                provider: routing.provider,
                 needsSearch: routing.needsSearch,
                 memoriesUsed: relevantMemories.length,
                 reasoning: routing.reasoning,
               });
 
-              // ── PHASE 3: SEARCH (decision only; provider not yet wired) ──
+              // ── PHASE 3: REAL TAVILY WEB SEARCH ───────────────────────────
+              let searchContext = "";
               if (routing.needsSearch && body.internetEnabled) {
                 emit({ type: "phase", phase: "searching" });
-                // Future: plug Tavily/Exa here and prepend results to system prompt.
-                // For now, surface a transparent note so the model doesn't fabricate.
-                relevantMemories.push(
-                  "[system] Web search would activate here; not yet wired. State uncertainty for time-sensitive facts.",
-                );
+                const hits = await tavilySearch(lastUser, 5);
+                if (hits.length > 0) {
+                  searchContext = formatSearchContext(hits);
+                  emit({ type: "sources", hits });
+                }
               }
 
               // ── PHASE 4: GENERATE (streamed) ──────────────────────────────
-              emit({ type: "phase", phase: "generating", model: routing.model });
+              emit({ type: "phase", phase: "generating", model: routing.model, provider: routing.provider });
 
-              const systemPrompt = buildSystemPrompt(routing.mode, relevantMemories);
-              const upstream = await fetch(GATEWAY, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${apiKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model: routing.model,
-                  stream: true,
-                  messages: [{ role: "system", content: systemPrompt }, ...body.messages],
-                }),
-              });
+              const systemPrompt = buildSystemPrompt(routing.mode, relevantMemories) + searchContext;
+              const upstreamMessages = [
+                { role: "system" as const, content: systemPrompt },
+                ...body.messages,
+              ];
+
+              // Primary attempt + fallback if primary provider/model fails.
+              let upstream: Response;
+              let activeModel = routing.model;
+              let activeProvider = routing.provider;
+              try {
+                upstream = await chatStream(routing.provider, routing.model, upstreamMessages);
+                if (!upstream.ok) throw new Error(`primary_${upstream.status}`);
+              } catch (primaryErr) {
+                // Try fallback provider if available and different from primary.
+                const fb = providerAvailable(FALLBACK.provider) ? FALLBACK : null;
+                if (!fb) throw primaryErr;
+                emit({ type: "fallback", from: routing.model, to: fb.model, provider: fb.provider });
+                upstream = await chatStream(fb.provider, fb.model, upstreamMessages);
+                activeModel = fb.model;
+                activeProvider = fb.provider;
+                emit({ type: "phase", phase: "generating", model: activeModel, provider: activeProvider });
+              }
 
               if (!upstream.ok || !upstream.body) {
                 if (upstream.status === 429) {
                   emit({ type: "error", message: "Rate limit reached. Slow down a moment." });
-                } else if (upstream.status === 402) {
-                  emit({ type: "error", message: "AI credits exhausted. Add credits in Workspace Settings." });
+                } else if (upstream.status === 401 || upstream.status === 403) {
+                  emit({ type: "error", message: `${activeProvider} rejected the API key. Update it in settings.` });
                 } else {
                   const t = await upstream.text().catch(() => "");
-                  emit({ type: "error", message: t || "Gateway error" });
+                  emit({ type: "error", message: t.slice(0, 300) || `${activeProvider} error ${upstream.status}` });
                 }
                 emit({ type: "phase", phase: "done" });
                 controller.close();
@@ -172,15 +180,14 @@ export const Route = createFileRoute("/api/orchestrate")({
               }
 
               // ── PHASE 5: SELF-CRITIC ──────────────────────────────────────
-              // Skip for casual chitchat or empty/short replies.
               const shouldCritique =
                 routing.intent !== "casual" && fullText.trim().length > 80;
 
               if (shouldCritique) {
                 emit({ type: "phase", phase: "refining" });
                 try {
-                  const critique = await gatewayJSON(
-                    apiKey,
+                  const critique = await chatJSON(
+                    routing.criticProvider,
                     routing.criticModel,
                     [
                       { role: "system", content: CRITIC_SYSTEM },
@@ -188,7 +195,6 @@ export const Route = createFileRoute("/api/orchestrate")({
                     ],
                   );
                   const trimmed = critique.trim();
-                  // Critic returns "OK" when draft is solid.
                   if (trimmed && trimmed !== "OK" && !/^ok[.!\s]*$/i.test(trimmed) && trimmed.length > 40) {
                     emit({ type: "refined", content: trimmed });
                   }
