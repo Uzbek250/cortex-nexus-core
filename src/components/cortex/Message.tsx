@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, User } from "lucide-react";
+import { Check, Copy, Sparkles, User } from "lucide-react";
 import { CortexLogo } from "./CortexLogo";
 import { cn } from "@/lib/utils";
 
@@ -10,10 +10,12 @@ export function Message({
   role,
   content,
   streaming,
+  refined,
 }: {
   role: "user" | "assistant" | "system";
   content: string;
   streaming?: boolean;
+  refined?: boolean;
 }) {
   if (role === "system") return null;
   const isUser = role === "user";
@@ -38,6 +40,12 @@ export function Message({
             : "glass text-foreground/95",
         )}
       >
+        {!isUser && refined && (
+          <div className="flex items-center gap-1 mb-1.5 text-[10px] uppercase tracking-widest text-accent/90">
+            <Sparkles className="w-3 h-3" />
+            Refined by critic
+          </div>
+        )}
         {isUser ? (
           <p className="whitespace-pre-wrap">{content}</p>
         ) : (
