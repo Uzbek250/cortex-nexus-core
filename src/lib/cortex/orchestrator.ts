@@ -2,6 +2,8 @@
 // Pure helpers for intent detection, model routing, memory selection, and critic prompts.
 // Server-only consumers: src/routes/api/orchestrate.ts
 
+export type Provider = "groq" | "openrouter";
+
 export type Intent =
   | "coding"
   | "research"
@@ -23,30 +25,36 @@ export interface RoutingDecision {
   intent: Intent;
   mode: CortexMode;
   model: string;
+  provider: Provider;
   criticModel: string;
+  criticProvider: Provider;
   needsSearch: boolean;
   reasoning: string;
 }
 
-// Lovable AI Gateway available models, mapped to the user's requested
-// providers (DeepSeek/Qwen/Llama/Gemma are not on the gateway — we map to
-// the closest equivalent and document the mapping here).
+// Real production routing across Groq + OpenRouter.
 //
-//  coding      → openai/gpt-5            (strongest at code, replaces DeepSeek)
-//  research    → google/gemini-2.5-pro   (long context + reasoning, replaces Qwen)
-//  casual      → google/gemini-2.5-flash-lite (fast/general, replaces Llama)
-//  creative    → google/gemini-2.5-pro   (rich generation, replaces Gemma)
-//  critique    → openai/gpt-5-mini       (secondary critic pass)
-//  study       → google/gemini-2.5-flash
-//  productivity→ google/gemini-2.5-flash
-export const MODEL_MAP: Record<Intent, string> = {
-  coding: "openai/gpt-5",
-  research: "google/gemini-2.5-pro",
-  creative: "google/gemini-2.5-pro",
-  study: "google/gemini-2.5-flash",
-  critique: "openai/gpt-5-mini",
-  productivity: "google/gemini-2.5-flash",
-  casual: "google/gemini-2.5-flash-lite",
+//  coding      → OpenRouter deepseek-chat       (strongest code reasoning, cheap)
+//  research    → OpenRouter qwen-2.5-72b        (long-context analysis)
+//  creative    → Groq gemma2-9b-it              (vivid, fast generation)
+//  casual      → Groq llama-3.3-70b-versatile   (fast general chat)
+//  study       → Groq llama-3.3-70b-versatile
+//  productivity→ Groq llama-3.3-70b-versatile
+//  critique    → Groq llama-3.1-8b-instant      (lightweight critic pass)
+export const MODEL_MAP: Record<Intent, { model: string; provider: Provider }> = {
+  coding:       { model: "deepseek/deepseek-chat",           provider: "openrouter" },
+  research:     { model: "qwen/qwen-2.5-72b-instruct",       provider: "openrouter" },
+  creative:     { model: "gemma2-9b-it",                     provider: "groq" },
+  study:        { model: "llama-3.3-70b-versatile",          provider: "groq" },
+  productivity: { model: "llama-3.3-70b-versatile",          provider: "groq" },
+  critique:     { model: "llama-3.1-8b-instant",             provider: "groq" },
+  casual:       { model: "llama-3.3-70b-versatile",          provider: "groq" },
+};
+
+// Fallback chain when primary provider fails.
+export const FALLBACK: { model: string; provider: Provider } = {
+  model: "llama-3.3-70b-versatile",
+  provider: "groq",
 };
 
 export const INTENT_TO_MODE: Record<Intent, CortexMode> = {
@@ -59,8 +67,10 @@ export const INTENT_TO_MODE: Record<Intent, CortexMode> = {
   casual: "auto",
 };
 
-export const CRITIC_MODEL = "openai/gpt-5-mini";
-export const CLASSIFIER_MODEL = "google/gemini-2.5-flash-lite";
+export const CRITIC_MODEL = "llama-3.1-8b-instant";
+export const CRITIC_PROVIDER: Provider = "groq";
+export const CLASSIFIER_MODEL = "llama-3.1-8b-instant";
+export const CLASSIFIER_PROVIDER: Provider = "groq";
 
 // --- Core personality (shared system prompt) ----------------------------
 export const CORTEX_CORE_PROMPT = `You are Cortex — a private, futuristic personal AI operating system for a single user.
@@ -146,11 +156,14 @@ export function parseClassifierOutput(raw: string): {
 }
 
 export function routeFromIntent(intent: Intent, needsSearch: boolean, reasoning: string): RoutingDecision {
+  const m = MODEL_MAP[intent];
   return {
     intent,
     mode: INTENT_TO_MODE[intent],
-    model: MODEL_MAP[intent],
+    model: m.model,
+    provider: m.provider,
     criticModel: CRITIC_MODEL,
+    criticProvider: CRITIC_PROVIDER,
     needsSearch,
     reasoning,
   };

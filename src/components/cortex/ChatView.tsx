@@ -12,6 +12,7 @@ interface Props {
   isTemporary: boolean;
   memory: string[];
   internetEnabled: boolean;
+  voiceEnabled: boolean;
   onCreateConversation: (firstMsg: string) => Promise<string>;
   onModeChange: (mode: string) => void;
   onPhaseChange: (phase: CortexPhase) => void;
@@ -20,7 +21,7 @@ interface Props {
 }
 
 export function ChatView({
-  conversationId, isTemporary, memory, internetEnabled,
+  conversationId, isTemporary, memory, internetEnabled, voiceEnabled,
   onCreateConversation, onModeChange, onPhaseChange, onModelChange, onTitleSet,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -188,7 +189,7 @@ export function ChatView({
         )}
       </div>
       <div className="px-4 sm:px-8 pb-6 pt-2 max-w-3xl mx-auto w-full">
-        <InputBar onSend={send} busy={streaming} onStop={stop} />
+        <InputBar onSend={send} busy={streaming} onStop={stop} voiceEnabled={voiceEnabled} />
       </div>
     </div>
   );
