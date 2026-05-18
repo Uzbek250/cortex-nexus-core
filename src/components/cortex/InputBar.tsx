@@ -165,15 +165,15 @@ export function InputBar({ onSend, busy, onStop, voiceEnabled = false, focusKey 
         )}
       </div>
       <p className="hidden sm:block text-[10px] text-muted-foreground/60 text-center mt-2 tracking-wide">
-        {t("input.hint.text", { a: t("input.hint.enter"), b: t("input.hint.shiftEnter") })
-          .split(/(\{[^}]+\})/)
-          .map((part, i) =>
-            part === t("input.hint.enter") || part === t("input.hint.shiftEnter") ? (
-              <kbd key={i} className="px-1 py-0.5 rounded bg-white/5">{part}</kbd>
-            ) : (
-              <span key={i}>{part}</span>
-            ),
-          )}
+        {(() => {
+          const tpl = t("input.hint.text");
+          const parts = tpl.split(/(\{a\}|\{b\})/);
+          return parts.map((part, i) => {
+            if (part === "{a}") return <kbd key={i} className="px-1 py-0.5 rounded bg-white/5">{t("input.hint.enter")}</kbd>;
+            if (part === "{b}") return <kbd key={i} className="px-1 py-0.5 rounded bg-white/5">{t("input.hint.shiftEnter")}</kbd>;
+            return <span key={i}>{part}</span>;
+          });
+        })()}
       </p>
     </motion.div>
   );
