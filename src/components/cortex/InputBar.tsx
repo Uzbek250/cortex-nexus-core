@@ -1,22 +1,32 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { motion } from "framer-motion";
 import { ArrowUp, Loader2, Mic, MicOff, Paperclip, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   onSend: (text: string) => void;
   busy: boolean;
   onStop: () => void;
   voiceEnabled?: boolean;
+  focusKey?: string | number | null;
 }
 
-export function InputBar({ onSend, busy, onStop, voiceEnabled = false }: Props) {
+export function InputBar({ onSend, busy, onStop, voiceEnabled = false, focusKey }: Props) {
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const { t } = useI18n();
+
+  // Auto-focus on mount and whenever focusKey changes (e.g. New chat pressed)
+  useEffect(() => {
+    // small delay so drawer-close transitions don't steal focus on mobile
+    const id = window.setTimeout(() => ref.current?.focus(), 50);
+    return () => window.clearTimeout(id);
+  }, [focusKey]);
 
   const startRecording = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -104,8 +114,9 @@ export function InputBar({ onSend, busy, onStop, voiceEnabled = false }: Props) 
             el.style.height = Math.min(el.scrollHeight, 220) + "px";
           }}
           onKeyDown={onKey}
-          placeholder={recording ? "Listening…" : transcribing ? "Transcribing…" : "Ask Cortex anything…"}
-          className="flex-1 bg-transparent outline-none resize-none text-sm placeholder:text-muted-foreground/70 py-2 px-1 max-h-[220px]"
+          placeholder={recording ? t("input.listening") : transcribing ? t("input.transcribing") : t("input.placeholder")}
+          className="flex-1 bg-transparent outline-none resize-none text-base sm:text-sm placeholder:text-muted-foreground/70 py-2 px-1 max-h-[220px]"
+          enterKeyHint="send"
         />
 
         <button
@@ -153,8 +164,16 @@ export function InputBar({ onSend, busy, onStop, voiceEnabled = false }: Props) 
           </button>
         )}
       </div>
-      <p className="text-[10px] text-muted-foreground/60 text-center mt-2 tracking-wide">
-        Cortex thinks carefully. Press <kbd className="px-1 py-0.5 rounded bg-white/5">Enter</kbd> to send, <kbd className="px-1 py-0.5 rounded bg-white/5">Shift+Enter</kbd> for a new line.
+      <p className="hidden sm:block text-[10px] text-muted-foreground/60 text-center mt-2 tracking-wide">
+        {t("input.hint.text", { a: t("input.hint.enter"), b: t("input.hint.shiftEnter") })
+          .split(/(\{[^}]+\})/)
+          .map((part, i) =>
+            part === t("input.hint.enter") || part === t("input.hint.shiftEnter") ? (
+              <kbd key={i} className="px-1 py-0.5 rounded bg-white/5">{part}</kbd>
+            ) : (
+              <span key={i}>{part}</span>
+            ),
+          )}
       </p>
     </motion.div>
   );
