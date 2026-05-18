@@ -169,11 +169,11 @@ export function ChatView({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-8 py-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-8 py-4 sm:py-6">
         {messages.length === 0 ? (
           <EmptyState onPick={send} />
         ) : (
-          <div className="max-w-3xl mx-auto space-y-5">
+          <div className="max-w-3xl mx-auto space-y-4 sm:space-y-5">
             <AnimatePresence initial={false}>
               {messages.map((m, i) => (
                 <Message
@@ -188,8 +188,11 @@ export function ChatView({
           </div>
         )}
       </div>
-      <div className="px-4 sm:px-8 pb-6 pt-2 max-w-3xl mx-auto w-full">
-        <InputBar onSend={send} busy={streaming} onStop={stop} voiceEnabled={voiceEnabled} />
+      <div
+        className="px-3 sm:px-8 pt-2 max-w-3xl mx-auto w-full"
+        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+      >
+        <InputBar onSend={send} busy={streaming} onStop={stop} voiceEnabled={voiceEnabled} focusKey={conversationId ?? "new"} />
       </div>
     </div>
   );

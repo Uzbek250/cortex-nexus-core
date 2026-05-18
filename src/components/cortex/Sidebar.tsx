@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Search, Settings, Trash2, Brain, Zap, MessageSquare } from "lucide-react";
+import { Plus, Search, Settings, Trash2, Brain, Zap, MessageSquare, X } from "lucide-react";
 import { CortexLogo } from "./CortexLogo";
 import type { Conversation } from "@/lib/cortex-types";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   conversations: Conversation[];
@@ -15,47 +16,67 @@ interface Props {
   onOpenMemory: () => void;
   temporaryMode: boolean;
   onToggleTemporary: () => void;
+  onClose?: () => void;
+  isMobile?: boolean;
 }
 
 export function Sidebar({
   conversations, activeId, onSelect, onNew, onDelete,
   onOpenSettings, onOpenMemory, temporaryMode, onToggleTemporary,
+  onClose, isMobile,
 }: Props) {
   const [q, setQ] = useState("");
+  const { t } = useI18n();
   const filtered = conversations.filter((c) => c.title.toLowerCase().includes(q.toLowerCase()));
 
   return (
-    <aside className="glass-strong h-full w-72 flex flex-col rounded-r-3xl border-r border-border/40">
+    <aside
+      className={cn(
+        "glass-strong h-full flex flex-col border-r border-border/40",
+        isMobile
+          ? "w-[85vw] max-w-[320px] rounded-none"
+          : "w-72 rounded-r-3xl",
+      )}
+    >
       {/* Brand */}
       <div className="flex items-center gap-3 px-5 pt-5 pb-4">
         <CortexLogo size={32} />
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="text-base font-medium tracking-[0.2em] text-aurora">CORTEX</div>
-          <div className="text-[10px] tracking-widest text-muted-foreground uppercase">v1.0 · Online</div>
+          <div className="text-[10px] tracking-widest text-muted-foreground uppercase truncate">v1.0 · {t("brand.online")}</div>
         </div>
+        {isMobile && (
+          <button
+            onClick={onClose}
+            aria-label={t("sidebar.close")}
+            className="h-9 w-9 -mr-1 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* New chat */}
       <div className="px-3 space-y-2">
         <button
           onClick={() => onNew(false)}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl glass-input hover:bg-primary/10 transition-all group ring-glow"
+          className="w-full flex items-center gap-2 px-3 py-3 rounded-xl glass-input hover:bg-primary/10 active:bg-primary/15 transition-all group ring-glow touch-manipulation"
         >
           <Plus className="w-4 h-4 text-primary group-hover:rotate-90 transition-transform" />
-          <span className="text-sm font-medium">New chat</span>
+          <span className="text-sm font-medium">{t("sidebar.newChat")}</span>
         </button>
 
         <button
           onClick={onToggleTemporary}
           className={cn(
-            "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition-all",
+            "w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs transition-all touch-manipulation",
             temporaryMode
               ? "bg-accent/15 text-accent border border-accent/30"
               : "text-muted-foreground hover:text-foreground hover:bg-white/5",
           )}
         >
           <Zap className="w-3.5 h-3.5" />
-          Temporary chat {temporaryMode && "· ON"}
+          {t("sidebar.temporary")} {temporaryMode && `· ${t("sidebar.tempOn")}`}
         </button>
       </div>
 
@@ -66,17 +87,17 @@ export function Sidebar({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search chats"
+            placeholder={t("sidebar.search")}
             className="w-full pl-9 pr-3 py-2 rounded-lg glass-input text-sm placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary/40"
           />
         </div>
       </div>
 
       {/* Conversations */}
-      <div className="flex-1 overflow-y-auto px-2 mt-3 space-y-0.5">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-2 mt-3 space-y-0.5">
         {filtered.length === 0 ? (
           <div className="text-xs text-muted-foreground/60 text-center mt-6 px-4">
-            No conversations yet. Start a new chat.
+            {t("sidebar.empty")}
           </div>
         ) : (
           filtered.map((c) => (
@@ -84,7 +105,7 @@ export function Sidebar({
               key={c.id}
               layout
               className={cn(
-                "group relative flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-all",
+                "group relative flex items-center gap-2 px-2.5 py-2.5 rounded-lg cursor-pointer transition-all touch-manipulation",
                 activeId === c.id
                   ? "bg-primary/12 text-foreground"
                   : "hover:bg-white/5 text-muted-foreground hover:text-foreground",
@@ -99,7 +120,10 @@ export function Sidebar({
                   e.stopPropagation();
                   onDelete(c.id);
                 }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive p-1"
+                className={cn(
+                  "transition-opacity hover:text-destructive p-1",
+                  isMobile ? "opacity-60" : "opacity-0 group-hover:opacity-100",
+                )}
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -109,20 +133,20 @@ export function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-border/40 space-y-1">
+      <div className="px-3 py-3 border-t border-border/40 space-y-1 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           onClick={onOpenMemory}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition touch-manipulation"
         >
           <Brain className="w-4 h-4" />
-          Memory
+          {t("sidebar.memory")}
         </button>
         <button
           onClick={onOpenSettings}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition touch-manipulation"
         >
           <Settings className="w-4 h-4" />
-          Settings
+          {t("sidebar.settings")}
         </button>
       </div>
     </aside>

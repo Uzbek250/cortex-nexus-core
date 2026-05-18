@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Globe, Brain, Mic, Trash2, Cpu, CheckCircle2, XCircle } from "lucide-react";
+import { X, Globe, Brain, Mic, Trash2, Cpu, CheckCircle2, XCircle, Languages } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { useI18n, type Lang } from "@/lib/i18n";
 
 interface Settings {
   memory_enabled: boolean;
@@ -29,6 +30,7 @@ const MODELS = [
 
 export function SettingsDialog({ open, onClose, settings, onChange, onClearHistory }: Props) {
   const [providers, setProviders] = useState<{ groq: boolean; openrouter: boolean; tavily: boolean } | null>(null);
+  const { t, lang, setLang } = useI18n();
 
   useEffect(() => {
     if (!open) return;
@@ -48,36 +50,36 @@ export function SettingsDialog({ open, onClose, settings, onChange, onClearHisto
     <AnimatePresence>
       {open && (
         <Overlay onClose={onClose}>
-          <Panel title="Settings" onClose={onClose}>
+          <Panel title={t("settings.title")} onClose={onClose}>
             <div className="mb-4 rounded-xl border border-border/40 p-3 space-y-1.5">
-              <div className="text-xs font-medium text-muted-foreground mb-1.5">AI Providers</div>
+              <div className="text-xs font-medium text-muted-foreground mb-1.5">{t("settings.providers")}</div>
               <ProviderRow name="Groq" desc="Llama, Gemma, Whisper" ok={providers?.groq} />
               <ProviderRow name="OpenRouter" desc="DeepSeek, Qwen" ok={providers?.openrouter} />
               <ProviderRow name="Tavily" desc="Live web search" ok={providers?.tavily} />
               <p className="text-[10px] text-muted-foreground/70 pt-1">
-                Keys are stored server-side and never exposed to the browser.
+                {t("settings.providers.note")}
               </p>
             </div>
 
             <Row
               icon={<Brain className="w-4 h-4" />}
-              title="Long-term memory"
-              desc="Cortex uses saved facts to personalize answers."
+              title={t("settings.memory.title")}
+              desc={t("settings.memory.desc")}
               checked={settings.memory_enabled}
               onChange={(v) => save({ memory_enabled: v })}
             />
             <Row
               icon={<Globe className="w-4 h-4" />}
-              title="Internet access"
-              desc={providers?.tavily ? "Tavily web search for fresh facts when needed." : "Add TAVILY_API_KEY to enable web search."}
+              title={t("settings.internet.title")}
+              desc={providers?.tavily ? t("settings.internet.on") : t("settings.internet.off")}
               checked={settings.internet_enabled}
               onChange={(v) => save({ internet_enabled: v })}
               disabled={!providers?.tavily}
             />
             <Row
               icon={<Mic className="w-4 h-4" />}
-              title="Voice"
-              desc={providers?.groq ? "Groq Whisper speech-to-text in the input bar." : "Add GROQ_API_KEY to enable voice."}
+              title={t("settings.voice.title")}
+              desc={providers?.groq ? t("settings.voice.on") : t("settings.voice.off")}
               checked={settings.voice_enabled}
               onChange={(v) => save({ voice_enabled: v })}
               disabled={!providers?.groq}
@@ -86,12 +88,36 @@ export function SettingsDialog({ open, onClose, settings, onChange, onClearHisto
             <div className="border-t border-border/40 my-4" />
 
             <div className="flex items-start gap-3 py-3">
+              <Languages className="w-4 h-4 mt-1 text-primary" />
+              <div className="flex-1">
+                <div className="text-sm font-medium">{t("settings.language.title")}</div>
+                <p className="text-xs text-muted-foreground mt-0.5">{t("settings.language.desc")}</p>
+                <div className="mt-2 flex gap-2">
+                  {(["en", "uz"] as Lang[]).map((l) => (
+                    <button
+                      key={l}
+                      onClick={() => setLang(l)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-xs font-medium transition touch-manipulation",
+                        lang === l
+                          ? "bg-primary text-primary-foreground"
+                          : "glass-input text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {l === "en" ? "English" : "O'zbekcha"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border/40 my-4" />
+
+            <div className="flex items-start gap-3 py-3">
               <Cpu className="w-4 h-4 mt-1 text-primary" />
               <div className="flex-1">
-                <div className="text-sm font-medium">Preferred model</div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Cortex always picks the right tool for the job. This is the default.
-                </p>
+                <div className="text-sm font-medium">{t("settings.model.title")}</div>
+                <p className="text-xs text-muted-foreground mt-0.5">{t("settings.model.desc")}</p>
                 <select
                   value={settings.preferred_model}
                   onChange={(e) => save({ preferred_model: e.target.value })}
@@ -110,10 +136,10 @@ export function SettingsDialog({ open, onClose, settings, onChange, onClearHisto
 
             <button
               onClick={onClearHistory}
-              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition"
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition touch-manipulation"
             >
               <Trash2 className="w-4 h-4" />
-              Clear all conversations
+              {t("settings.clear")}
             </button>
           </Panel>
         </Overlay>
@@ -123,6 +149,7 @@ export function SettingsDialog({ open, onClose, settings, onChange, onClearHisto
 }
 
 function ProviderRow({ name, desc, ok }: { name: string; desc: string; ok?: boolean }) {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-2 text-xs">
       {ok ? (
@@ -133,7 +160,7 @@ function ProviderRow({ name, desc, ok }: { name: string; desc: string; ok?: bool
       <span className="font-medium">{name}</span>
       <span className="text-muted-foreground/70">· {desc}</span>
       <span className={cn("ml-auto", ok ? "text-primary" : "text-muted-foreground/50")}>
-        {ok === undefined ? "…" : ok ? "Connected" : "Not configured"}
+        {ok === undefined ? "…" : ok ? t("settings.connected") : t("settings.notConfigured")}
       </span>
     </div>
   );

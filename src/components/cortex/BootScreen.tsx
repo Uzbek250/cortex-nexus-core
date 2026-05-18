@@ -1,16 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CortexLogo } from "./CortexLogo";
-
-const LINES = [
-  "Initializing neural core…",
-  "Calibrating reasoning lattice…",
-  "Loading long-term memory…",
-  "Cortex is online.",
-];
+import { useI18n, type TKey } from "@/lib/i18n";
 
 export function BootScreen({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
+  const { t } = useI18n();
+  const LINES = useMemo(
+    () => (["boot.l1", "boot.l2", "boot.l3", "boot.l4"] as TKey[]).map((k) => t(k)),
+    [t],
+  );
 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -52,7 +51,7 @@ export function BootScreen({ onDone }: { onDone: () => void }) {
         transition={{ delay: 0.6 }}
         className="mt-2 text-xs tracking-[0.3em] text-muted-foreground uppercase"
       >
-        Personal AI Operating System
+        {t("boot.tagline")}
       </motion.p>
 
       <div className="mt-12 h-24 w-80 text-center">

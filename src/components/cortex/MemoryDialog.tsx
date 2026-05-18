@@ -3,12 +3,14 @@ import { AnimatePresence } from "framer-motion";
 import { Plus, Trash2, Brain } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Overlay, Panel } from "./SettingsDialog";
+import { useI18n } from "@/lib/i18n";
 
 interface Item { id: string; content: string }
 
 export function MemoryDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [items, setItems] = useState<Item[]>([]);
   const [text, setText] = useState("");
+  const { t } = useI18n();
 
   const load = async () => {
     const { data } = await supabase
@@ -37,9 +39,9 @@ export function MemoryDialog({ open, onClose }: { open: boolean; onClose: () => 
     <AnimatePresence>
       {open && (
         <Overlay onClose={onClose}>
-          <Panel title="Long-term memory" onClose={onClose}>
+          <Panel title={t("memory.title")} onClose={onClose}>
             <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
-              <Brain className="w-3.5 h-3.5" /> Facts Cortex remembers across every conversation.
+              <Brain className="w-3.5 h-3.5" /> {t("memory.subtitle")}
             </p>
 
             <div className="flex gap-2">
@@ -47,7 +49,7 @@ export function MemoryDialog({ open, onClose }: { open: boolean; onClose: () => 
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && add()}
-                placeholder="I prefer concise answers. My name is…"
+                placeholder={t("memory.placeholder")}
                 className="flex-1 glass-input rounded-lg px-3 py-2 text-sm outline-none"
               />
               <button
@@ -62,7 +64,7 @@ export function MemoryDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="mt-4 space-y-1.5 max-h-72 overflow-y-auto">
               {items.length === 0 && (
                 <p className="text-xs text-muted-foreground/70 text-center py-6">
-                  No memories yet. Anything you add here is sent with every chat.
+                  {t("memory.empty")}
                 </p>
               )}
               {items.map((m) => (
