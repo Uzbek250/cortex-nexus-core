@@ -29,9 +29,13 @@ export function ChatView({
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [refinedIds, setRefinedIds] = useState<Set<string>>(new Set());
+  // Conversations created from inside send() — skip the reload effect for them
+  // so the in-flight stream is not wiped when the parent assigns the new id.
+  const adoptedConvIds = useRef<Set<string>>(new Set());
 
   // Load messages on conv change
   useEffect(() => {
+    if (conversationId && adoptedConvIds.current.has(conversationId)) return;
     setMessages([]);
     if (!conversationId || isTemporary) return;
     (async () => {
@@ -53,6 +57,7 @@ export function ChatView({
     let convId = conversationId;
     if (!convId && !isTemporary) {
       convId = await onCreateConversation(text);
+      if (convId) adoptedConvIds.current.add(convId);
     }
 
     const userMsg: ChatMessage = {
@@ -148,8 +153,10 @@ export function ChatView({
           } catch {}
         }
       }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
+    } catch (e: unknown) {
+      const err = e as { name?: string; message?: string };
+      console.error("[Cortex] stream error", err);
+      if (err?.name !== "AbortError") {
         acc = acc || "⚠️ Connection lost.";
         setMessages((m) => m.map((x) => x.id === assistantId ? { ...x, content: acc } : x));
       }
