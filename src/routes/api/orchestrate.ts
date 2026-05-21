@@ -10,8 +10,10 @@ import {
   buildCriticUserMessage,
   buildSystemPrompt,
   parseClassifierOutput,
+  parseCriticOutput,
   routeFromIntent,
   selectRelevantMemories,
+  shouldAcceptRevision,
 } from "@/lib/cortex/orchestrator";
 import {
   chatJSON,
@@ -179,9 +181,15 @@ export const Route = createFileRoute("/api/orchestrate")({
                 }
               }
 
-              // ── PHASE 5: SELF-CRITIC ──────────────────────────────────────
+              // ── PHASE 5: SELF-CRITIC (conservative) ───────────────────────
+              // Only critique factual/reasoning-heavy intents and longer drafts.
+              // Creative/casual replies are left alone — refining them tends to
+              // distort tone and meaning.
               const shouldCritique =
-                routing.intent !== "casual" && fullText.trim().length > 80;
+                (routing.intent === "research" ||
+                  routing.intent === "coding" ||
+                  routing.intent === "study") &&
+                fullText.trim().length > 200;
 
               if (shouldCritique) {
                 emit({ type: "phase", phase: "refining" });
@@ -193,10 +201,14 @@ export const Route = createFileRoute("/api/orchestrate")({
                       { role: "system", content: CRITIC_SYSTEM },
                       { role: "user", content: buildCriticUserMessage(lastUser, fullText) },
                     ],
+                    1500,
                   );
-                  const trimmed = critique.trim();
-                  if (trimmed && trimmed !== "OK" && !/^ok[.!\s]*$/i.test(trimmed) && trimmed.length > 40) {
-                    emit({ type: "refined", content: trimmed });
+                  const verdict = parseCriticOutput(critique);
+                  if (
+                    verdict.verdict === "revise" &&
+                    shouldAcceptRevision(fullText, verdict.revised, verdict.confidence)
+                  ) {
+                    emit({ type: "refined", content: verdict.revised.trim(), issue: verdict.issue });
                   }
                 } catch {
                   // critic optional — silently skip on failure
