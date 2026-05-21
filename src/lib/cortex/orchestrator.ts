@@ -32,29 +32,36 @@ export interface RoutingDecision {
   reasoning: string;
 }
 
-// Real production routing across Groq + OpenRouter.
+// Quality-first routing. Light 8B models are reserved for trivial chitchat —
+// reasoning, critique, analysis, study, and coding always go to strong models.
 //
-//  coding      → OpenRouter deepseek-chat       (strongest code reasoning, cheap)
+//  coding      → OpenRouter deepseek-chat       (strong code reasoning)
 //  research    → OpenRouter qwen-2.5-72b        (long-context analysis)
-//  creative    → Groq gemma2-9b-it              (vivid, fast generation)
-//  casual      → Groq llama-3.3-70b-versatile   (fast general chat)
-//  study       → Groq llama-3.3-70b-versatile
-//  productivity→ Groq llama-3.3-70b-versatile
-//  critique    → Groq llama-3.1-8b-instant      (lightweight critic pass)
+//  creative    → OpenRouter qwen-2.5-72b        (fluent multilingual prose)
+//  study       → OpenRouter qwen-2.5-72b        (strong explanations + Uzbek)
+//  critique    → OpenRouter qwen-2.5-72b        (deep reasoning + tanqid)
+//  productivity→ Groq llama-3.3-70b-versatile   (general workhorse)
+//  casual      → Groq llama-3.1-8b-instant      (fast chitchat ONLY)
 export const MODEL_MAP: Record<Intent, { model: string; provider: Provider }> = {
   coding:       { model: "deepseek/deepseek-chat",           provider: "openrouter" },
   research:     { model: "qwen/qwen-2.5-72b-instruct",       provider: "openrouter" },
-  creative:     { model: "gemma2-9b-it",                     provider: "groq" },
-  study:        { model: "llama-3.3-70b-versatile",          provider: "groq" },
+  creative:     { model: "qwen/qwen-2.5-72b-instruct",       provider: "openrouter" },
+  study:        { model: "qwen/qwen-2.5-72b-instruct",       provider: "openrouter" },
   productivity: { model: "llama-3.3-70b-versatile",          provider: "groq" },
-  critique:     { model: "llama-3.1-8b-instant",             provider: "groq" },
-  casual:       { model: "llama-3.3-70b-versatile",          provider: "groq" },
+  critique:     { model: "qwen/qwen-2.5-72b-instruct",       provider: "openrouter" },
+  casual:       { model: "llama-3.1-8b-instant",             provider: "groq" },
 };
 
-// Fallback chain when primary provider fails.
+// Strong fallback — never the 8B instant model.
 export const FALLBACK: { model: string; provider: Provider } = {
   model: "llama-3.3-70b-versatile",
   provider: "groq",
+};
+
+// Heavy-reasoning fallback when the primary strong model fails.
+export const REASONING_FALLBACK: { model: string; provider: Provider } = {
+  model: "qwen/qwen-2.5-72b-instruct",
+  provider: "openrouter",
 };
 
 export const INTENT_TO_MODE: Record<Intent, CortexMode> = {
@@ -67,8 +74,10 @@ export const INTENT_TO_MODE: Record<Intent, CortexMode> = {
   casual: "auto",
 };
 
-export const CRITIC_MODEL = "llama-3.1-8b-instant";
-export const CRITIC_PROVIDER: Provider = "groq";
+// Critic must reason well in any language (including Uzbek). Use a strong model.
+export const CRITIC_MODEL = "qwen/qwen-2.5-72b-instruct";
+export const CRITIC_PROVIDER: Provider = "openrouter";
+// Classifier is a tiny JSON-only task — fast model is fine.
 export const CLASSIFIER_MODEL = "llama-3.1-8b-instant";
 export const CLASSIFIER_PROVIDER: Provider = "groq";
 
@@ -165,6 +174,114 @@ export function routeFromIntent(intent: Intent, needsSearch: boolean, reasoning:
     criticModel: CRITIC_MODEL,
     criticProvider: CRITIC_PROVIDER,
     needsSearch,
+    reasoning,
+  };
+}
+
+// --- Heuristic intent overrides --------------------------------------------
+// Catch reasoning-heavy prompts the classifier may mislabel as "casual",
+// and never let long Uzbek prompts be routed to the 8B instant model.
+
+// Reasoning-trigger keywords across English, Uzbek (Latin + Cyrillic), Russian.
+const REASONING_KEYWORDS: { intent: Intent; words: string[] }[] = [
+  { intent: "coding", words: [
+    "code", "coding", "debug", "bug", "stack trace", "refactor", "function",
+    "typescript", "javascript", "python", "react", "sql", "api ", "regex",
+    "kod", "dasturlash", "xato", "хато", "код",
+  ]},
+  { intent: "critique", words: [
+    "critique", "criticize", "review my", "poke holes", "weakness", "flaw",
+    "challenge this", "argue against", "counter", "rebut",
+    "tanqid", "tanqidiy", "kamchilik", "zaif", "raddiya",
+    "критик", "разбер", "слабост",
+  ]},
+  { intent: "research", words: [
+    "research", "analyze", "analysis", "compare", "evaluate", "evidence",
+    "investigate", "deep dive", "explain deeply", "in detail",
+    "tahlil", "tadqiq", "qiyos", "chuqur", "batafsil",
+    "анализ", "исследов", "сравни",
+  ]},
+  { intent: "study", words: [
+    "explain", "teach me", "learn", "study", "exam", "lesson",
+    "tushuntir", "o'rgat", "oʻrgat", "o`rgat", "o‘rgat", "o'rganish",
+    "oʻrganish", "imtihon", "dars", "fan",
+    "объясни", "учеба", "урок",
+  ]},
+  // Business / strategy / career → research-level reasoning
+  { intent: "research", words: [
+    "strategy", "business", "company", "startup", "career", "investment",
+    "market", "competitor", "roadmap",
+    "strategiya", "biznes", "kompaniya", "bozor", "karyera", "investitsiya",
+    "стратеги", "бизнес", "компани", "карьер", "инвест",
+  ]},
+];
+
+function hasReasoningKeyword(text: string): Intent | null {
+  const lower = text.toLowerCase();
+  for (const group of REASONING_KEYWORDS) {
+    for (const w of group.words) {
+      if (lower.includes(w)) return group.intent;
+    }
+  }
+  return null;
+}
+
+// Uzbek detector — Latin Uzbek shares the alphabet with English, so we look
+// for distinctive markers: oʻ / o' / o` / gʻ / g' / g` digraphs, Cyrillic Uzbek
+// letters (ў ғ қ ҳ), or common high-frequency Uzbek words.
+const UZBEK_MARKERS = [
+  "oʻ", "o'", "o`", "o‘", "gʻ", "g'", "g`", "g‘",
+  "ў", "ғ", "қ", "ҳ",
+  " va ", " yoki ", " uchun ", " bilan ", " bo'l", " boʻl", " qil",
+  " kerak", " menga ", " sen ", " siz ", " nima ", " qanday ",
+];
+
+function isUzbek(text: string): boolean {
+  const lower = text.toLowerCase();
+  return UZBEK_MARKERS.some((m) => lower.includes(m));
+}
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+// Apply heuristic overrides on top of the classifier's decision.
+// Rules:
+//  1. Reasoning keywords upgrade the intent (unless already strong).
+//  2. Long prompts (>20 words) are never "casual" → at minimum "productivity".
+//  3. Uzbek prompts longer than ~8 words must use a strong model.
+export function applyRoutingOverrides(
+  decision: RoutingDecision,
+  userText: string,
+): RoutingDecision {
+  let intent = decision.intent;
+  let reasoning = decision.reasoning;
+
+  const kw = hasReasoningKeyword(userText);
+  if (kw && intent === "casual") {
+    intent = kw;
+    reasoning = `keyword_override:${kw}`;
+  }
+
+  const wc = wordCount(userText);
+  if (intent === "casual" && wc > 20) {
+    intent = "productivity";
+    reasoning = "long_prompt_upgrade";
+  }
+
+  // Uzbek-aware safeguard: long Uzbek prompts must not hit the 8B instant model.
+  if (isUzbek(userText) && wc > 8 && intent === "casual") {
+    intent = "productivity";
+    reasoning = "uzbek_strong_model";
+  }
+
+  const m = MODEL_MAP[intent];
+  return {
+    ...decision,
+    intent,
+    mode: INTENT_TO_MODE[intent],
+    model: m.model,
+    provider: m.provider,
     reasoning,
   };
 }

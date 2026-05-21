@@ -7,6 +7,8 @@ import {
   CLASSIFIER_SYSTEM,
   CRITIC_SYSTEM,
   FALLBACK,
+  REASONING_FALLBACK,
+  applyRoutingOverrides,
   buildCriticUserMessage,
   buildSystemPrompt,
   parseClassifierOutput,
@@ -87,6 +89,8 @@ export const Route = createFileRoute("/api/orchestrate")({
               } catch {
                 routing = routeFromIntent("casual", false, "classifier_failed");
               }
+              // Heuristic safety net: keyword + language + length overrides.
+              routing = applyRoutingOverrides(routing, lastUser);
 
               // ── PHASE 2: ROUTE + MEMORY SELECTION ─────────────────────────
               emit({ type: "phase", phase: "routing", model: routing.model, provider: routing.provider });
@@ -124,21 +128,42 @@ export const Route = createFileRoute("/api/orchestrate")({
               ];
 
               // Primary attempt + fallback if primary provider/model fails.
-              let upstream: Response;
+              let upstream!: Response;
               let activeModel = routing.model;
               let activeProvider = routing.provider;
               try {
                 upstream = await chatStream(routing.provider, routing.model, upstreamMessages);
                 if (!upstream.ok) throw new Error(`primary_${upstream.status}`);
               } catch (primaryErr) {
-                // Try fallback provider if available and different from primary.
-                const fb = providerAvailable(FALLBACK.provider) ? FALLBACK : null;
-                if (!fb) throw primaryErr;
-                emit({ type: "fallback", from: routing.model, to: fb.model, provider: fb.provider });
-                upstream = await chatStream(fb.provider, fb.model, upstreamMessages);
-                activeModel = fb.model;
-                activeProvider = fb.provider;
-                emit({ type: "phase", phase: "generating", model: activeModel, provider: activeProvider });
+                // Reasoning-heavy intents fall back to a strong model first; only
+                // casual chat falls back to the lightweight workhorse.
+                const isReasoning =
+                  routing.intent !== "casual" && routing.intent !== "productivity";
+                const preferred = isReasoning ? REASONING_FALLBACK : FALLBACK;
+                const chain = [preferred, FALLBACK].filter(
+                  (f, i, arr) =>
+                    providerAvailable(f.provider) &&
+                    f.model !== routing.model &&
+                    arr.findIndex((x) => x.model === f.model) === i,
+                );
+                if (chain.length === 0) throw primaryErr;
+                let lastErr: unknown = primaryErr;
+                let ok = false;
+                for (const fb of chain) {
+                  try {
+                    emit({ type: "fallback", from: activeModel, to: fb.model, provider: fb.provider });
+                    upstream = await chatStream(fb.provider, fb.model, upstreamMessages);
+                    if (!upstream.ok) throw new Error(`fallback_${upstream.status}`);
+                    activeModel = fb.model;
+                    activeProvider = fb.provider;
+                    emit({ type: "phase", phase: "generating", model: activeModel, provider: activeProvider });
+                    ok = true;
+                    break;
+                  } catch (e) {
+                    lastErr = e;
+                  }
+                }
+                if (!ok) throw lastErr;
               }
 
               if (!upstream.ok || !upstream.body) {
