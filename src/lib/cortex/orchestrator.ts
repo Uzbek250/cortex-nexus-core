@@ -210,22 +210,108 @@ export function selectRelevantMemories(
 }
 
 // --- Critic prompt ----------------------------------------------------------
-export const CRITIC_SYSTEM = `You are Cortex's internal critic. Review a draft assistant reply for:
-1. Hallucination risk (claims the model cannot reasonably know).
-2. Fake certainty (assertive tone on uncertain facts).
-3. Weak reasoning, logical gaps, or contradictions.
-4. Sycophancy, filler, or unnecessary padding.
-5. Wrong direct answer to the user's actual question.
+// The critic is a CONSERVATIVE reviewer, not a second writer.
+// Default outcome is OK. Rewriting is the rare exception.
+export const CRITIC_SYSTEM = `You are Cortex's internal critic. You are a SUBTLE reviewer, not a rewriter.
 
-If the draft is solid, reply with EXACTLY the single token: OK
+Your default answer is OK. Only suggest a rewrite when the draft contains a CLEAR, SPECIFIC, HIGH-CONFIDENCE problem:
+- A factual hallucination you are certain is wrong.
+- A direct contradiction inside the draft.
+- An answer that does not address what the user actually asked.
 
-Otherwise, output a fully rewritten improved reply. No preamble, no explanation
-of changes, no "Here's the improved version" — just the new reply, ready to
-show the user. Preserve markdown formatting. Keep the same language. Stay
-concise — do not add length for its own sake.`;
+You MUST output exactly one JSON object and nothing else:
+{"verdict":"ok"|"revise","confidence":0.0-1.0,"issue":"<short>","revised":"<full revised reply or empty>"}
+
+HARD RULES — violating any one of these means you MUST return verdict:"ok":
+1. Never change the language of the draft. If the draft is in Uzbek, the revised text must be in the same Uzbek. Same for English, Russian, etc.
+2. Never change the user's intent or the topic. Do not introduce new subjects (legal threats, security warnings, policy disclaimers, safety lectures) that were not already in the draft.
+3. Never invent facts, citations, names, numbers, laws, or risks not present in the draft.
+4. Never moralize, warn, or add disclaimers the draft did not contain.
+5. Preserve tone, structure, formatting, headings, lists, and code blocks.
+6. The revised reply must be roughly the same length (within ±30%) and must directly answer the same question as the draft.
+7. If you are not highly confident (confidence < 0.75) that a rewrite is strictly better and safe, return verdict:"ok".
+8. Stylistic preference, mild wordiness, or "could be clearer" are NOT reasons to revise. Return ok.
+
+When in doubt: verdict:"ok", revised:"". Prefer no refinement over harmful refinement.`;
 
 export function buildCriticUserMessage(userMessage: string, draft: string): string {
-  return `USER ASKED:\n${userMessage}\n\nDRAFT REPLY:\n${draft}`;
+  return `USER ASKED:\n${userMessage}\n\nDRAFT REPLY:\n${draft}\n\nReview the draft. Respond with the JSON object only.`;
+}
+
+export interface CriticVerdict {
+  verdict: "ok" | "revise";
+  confidence: number;
+  issue: string;
+  revised: string;
+}
+
+export function parseCriticOutput(raw: string): CriticVerdict {
+  const fallback: CriticVerdict = { verdict: "ok", confidence: 0, issue: "", revised: "" };
+  if (!raw) return fallback;
+  const cleaned = raw.replace(/```json|```/g, "").trim();
+  // Legacy "OK" token from older critic outputs.
+  if (/^ok[.!\s]*$/i.test(cleaned)) return fallback;
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) return fallback;
+  try {
+    const j = JSON.parse(match[0]);
+    return {
+      verdict: j.verdict === "revise" ? "revise" : "ok",
+      confidence: typeof j.confidence === "number" ? j.confidence : 0,
+      issue: typeof j.issue === "string" ? j.issue : "",
+      revised: typeof j.revised === "string" ? j.revised : "",
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+// --- Safety guards for critic revisions ------------------------------------
+// Cheap script/language detector. Returns dominant script bucket.
+function scriptProfile(s: string): { latin: number; cyrillic: number; cjk: number; arabic: number; total: number } {
+  let latin = 0, cyrillic = 0, cjk = 0, arabic = 0, total = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!;
+    if ((c >= 0x41 && c <= 0x7a) || c === 0x2bb || c === 0x2bc) { latin++; total++; }
+    else if (c >= 0x400 && c <= 0x4ff) { cyrillic++; total++; }
+    else if ((c >= 0x3040 && c <= 0x9fff) || (c >= 0xac00 && c <= 0xd7af)) { cjk++; total++; }
+    else if (c >= 0x600 && c <= 0x6ff) { arabic++; total++; }
+  }
+  return { latin, cyrillic, cjk, arabic, total };
+}
+
+function sameLanguage(a: string, b: string): boolean {
+  const A = scriptProfile(a);
+  const B = scriptProfile(b);
+  if (A.total < 20 || B.total < 20) return true; // too short to judge
+  const dom = (p: typeof A) => {
+    const entries: [string, number][] = [["latin", p.latin], ["cyrillic", p.cyrillic], ["cjk", p.cjk], ["arabic", p.arabic]];
+    entries.sort((x, y) => y[1] - x[1]);
+    return entries[0][0];
+  };
+  return dom(A) === dom(B);
+}
+
+// Reject rewrites that drift too far from the draft in length or vocabulary.
+export function shouldAcceptRevision(draft: string, revised: string, confidence: number): boolean {
+  if (confidence < 0.75) return false;
+  const r = revised.trim();
+  if (r.length < 40) return false;
+  // Length must stay within ±35% of the draft.
+  const ratio = r.length / Math.max(1, draft.length);
+  if (ratio < 0.65 || ratio > 1.35) return false;
+  // Must remain in the same script/language.
+  if (!sameLanguage(draft, r)) return false;
+  // Token-overlap sanity check — revision must share substantive vocabulary with the draft.
+  const dt = new Set(tokenize(draft));
+  const rt = tokenize(r);
+  if (dt.size >= 8 && rt.length >= 8) {
+    let shared = 0;
+    for (const t of rt) if (dt.has(t)) shared++;
+    const overlap = shared / rt.length;
+    if (overlap < 0.35) return false; // semantic drift — likely a different answer
+  }
+  return true;
 }
 
 // --- Future-ready hooks -----------------------------------------------------
