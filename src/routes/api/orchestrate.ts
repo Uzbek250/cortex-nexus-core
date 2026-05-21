@@ -128,7 +128,7 @@ export const Route = createFileRoute("/api/orchestrate")({
               ];
 
               // Primary attempt + fallback if primary provider/model fails.
-              let upstream: Response;
+              let upstream!: Response;
               let activeModel = routing.model;
               let activeProvider = routing.provider;
               try {
